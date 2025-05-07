@@ -1,0 +1,24 @@
+version: '3.8'
+services:
+  game-service:
+    build: ./game-service
+    ports:
+      - "8000:80"
+
+  user-game-service:
+    build: ./user-game-service
+    ports:
+      - "8001:80"
+
+  gateway-graphql-service:
+    build: ./gateway-graphql-service
+    ports:
+      - "3000:3000"
+    depends_on:
+      - game-service
+      - user-game-service
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/graphql"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
