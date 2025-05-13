@@ -1,8 +1,8 @@
 const fetch = require('node-fetch');
 
 // Define the URLs for the game and user-game services
-const GAMES_URL = 'http://game-service/games';
-const USER_GAMES_URL = 'http://user-game-service';
+const GAMES_URL = 'http://game-service:8000/games';
+const USER_GAMES_URL = 'http://user-game-service:8001';
 
 
 module.exports.resolvers = {
@@ -10,19 +10,27 @@ module.exports.resolvers = {
     games: async () => {
       // Fetch the list of games from the game service
       const response = await fetch(GAMES_URL);
-      const games = await response.json();
-      return games;
+      const data = await response.json();
+      return Array.isArray(data) ? data : data.games || data.data || [];
     },
     userGames: async (_, { username }) => {
       const userResponse = await fetch(`${USER_GAMES_URL}/user-games/${username}`);
       const userLinks = await userResponse.json();
+      if (!Array.isArray(userLinks)) {
+        console.error('Invalid user links response:', userLinks);
+        userLinks = [];
+      }     
 
       const gameResponse = await fetch(GAMES_URL);
       const allGames = await gameResponse.json();
-
+      if (!Array.isArray(allGames)) {
+        console.error('Invalid games response:', allGames);
+        return [];
+      }
+      // Map the user links to include the game object
       return userLinks.map(link => ({
-        gameId: link.gameId,
-        game: allGames.find(game => game.id === link.gameId)
+        gameId: link.gameId,  // Explicitly return gameId
+        game: allGames.find(game => game.id === link.gameId) || null  // Link the game object
       }));
     }
   },
@@ -38,35 +46,60 @@ module.exports.resolvers = {
       return { success: true, game };
     },
     linkGameToUser: async (_, { username, gameId }) => {
-      // Link a game to a user by sending a POST request to the user-game service
       try {
         const res = await fetch(`${USER_GAMES_URL}/link`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ gameId, username })
         });
-
-        if (!res.ok) {
-          console.error('Failed to link game:', res.statusText);
-          return { success: false };
-        }
-
         const result = await res.json();
-        return { success: result.success };
+        if (!res.ok || result.success === false) {
+          console.error('Failed to link game:', result.reason || res.statusText);
+          return {
+            success: false,
+            reason: result.reason || 'Unknown error'
+          };
+        }
+        return {
+          success: true,
+          reason: result.reason || null
+        };
       } catch (error) {
         console.error('Error linking game:', error);
-        return { success: false };  // ensure non-nullable return
+        return {
+          success: false,
+          reason: 'Server error or network failure'
+        };
       }
     },
     unlinkGameFromUser: async (_, { username, gameId }) => {
-      // Unlink a game from a user by sending a DELETE request to the user-game service
-      const response = await fetch(`${USER_GAMES_URL}/unlink`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, gameId })
-      });
-      const result = await response.json();
-      return { success: result.success };
+      try {
+        const res = await fetch(`${USER_GAMES_URL}/unlink`, {
+          method: 'DELETE', // Assuming POST for unlink — switch to DELETE if needed
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, gameId })
+        });
+
+        const result = await res.json();
+
+        if (!res.ok || result.success === false) {
+          console.error('Failed to unlink game:', result.reason || res.statusText);
+          return {
+            success: false,
+            reason: result.reason || 'Unknown error'
+          };
+        }
+        return {
+          success: true,
+          reason: null || result.reason
+        };
+      } catch (error) {
+        console.error('Error unlinking game:', error);
+        return {
+          success: false,
+          reason: 'Server error or network failure'
+        };
+      }
     }
   }
 };
